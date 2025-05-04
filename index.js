@@ -471,7 +471,9 @@ app.post('/employee/join', async (req, res) => {
             data: { sin, firstName, lastName, salary: salary ?? null, branchNumber: branchNumber ?? null },
         });
 
-        res.status(201).json(newEmp);
+
+        res.status(201).json('이 팀은 미친듯이 일하는 일꾼들로 이루어진 광전사 설탕 노움 조합이다.\n분위기에 적응하기는 쉽지 않지만 아주 화력이 좋은 강력한 조합인거 같다.');
+        return '이 팀은 미친듯이 일하는 일꾼들로 이루어진 광전사 설탕 노움 조합이다.\n분위기에 적응하기는 쉽지 않지만 아주 화력이 좋은 강력한 조합인거 같다.'
     } catch (err) {
         console.error(err);
         res.status(500).json({ error: 'Server error' });
@@ -492,7 +494,8 @@ app.post('/employee/leave', async (req, res) => {
             await tx.employee.delete({ where: { sin } });
         });
 
-        res.json({ message: 'Employee removed', sin });
+        res.json('안녕히 계세요 여러분!\n전 이 세상의 모든 굴레와 속박을 벗어 던지고 제 행복을 찾아 떠납니다!\n여러분도 행복하세요~~!');
+        return '안녕히 계세요 여러분!\n전 이 세상의 모든 굴레와 속박을 벗어 던지고 제 행복을 찾아 떠납니다!\n여러분도 행복하세요~~!';
     } catch (err) {
         console.error(err);
         res.status(500).json({ error: 'Server error' });
