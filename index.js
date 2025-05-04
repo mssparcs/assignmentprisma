@@ -454,4 +454,140 @@ app.get('/problems/20', async (req, res) => {
     );
 });
 
+app.post('/employee/join', async (req, res) => {
+    const { sin, firstName, lastName, salary, branchNumber } = req.body;
+  
+    if (!sin || !firstName || !lastName) {
+        return res.status(400).json({ error: 'sin, firstName, lastName are required' });
+    }
+  
+    try {
+        const exists = await prisma.employee.findUnique({ where: { sin } });
+        if (exists) {
+          return res.status(409).json({ error: 'Employee with that SIN already exists' });
+        }
+
+        const newEmp = await prisma.employee.create({
+            data: { sin, firstName, lastName, salary: salary ?? null, branchNumber: branchNumber ?? null },
+        });
+
+        res.status(201).json(newEmp);
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+app.post('/employee/leave', async (req, res) => {
+    const { sin } = req.body;
+    if (!sin) return res.status(400).json({ error: 'sin is required' });
+
+    try {
+        const employee = await prisma.employee.findUnique({ where: { sin } });
+        if (!employee) return res.status(404).json({ error: 'Employee not found' });
+
+        await prisma.$transaction(async (tx) => {
+            await tx.branch.updateMany({ where: { managerSIN: sin }, data: { managerSIN: null }});
+
+            await tx.employee.delete({ where: { sin } });
+        });
+
+        res.json({ message: 'Employee removed', sin });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+async function nextTransNumber(accNumber) {
+    const agg = await prisma.transactions.aggregate({
+        where: { accNumber },
+        _max:  { transNumber: true },
+    });
+    return (agg._max.transNumber ?? 0) + 1;
+}
+
+app.post('/account/:accNumber/deposit', async (req, res) => {
+    const accNumber = parseInt(req.params.accNumber, 10);
+    const amount    = Number(req.body.amount);
+
+    if (isNaN(amount) || amount <= 0) {
+        return res.status(400).json({ error: 'Positive numeric amount required' });
+    }
+
+    try {
+        const result = await prisma.$transaction(async (tx) => {
+            const account = await tx.account.findUnique({ where: { accNumber } });
+            if (!account) throw new Error('Account not found');
+
+            const newBalance = (Number(account.balance ?? 0) + amount).toString();
+
+            await tx.account.update({
+                where: { accNumber },
+                data:  { balance: newBalance },
+            });
+
+            await tx.transactions.create({
+                data: {
+                accNumber,
+                transNumber: await nextTransNumber(accNumber),
+                amount: amount.toString(),
+                },
+            });
+
+            return { accNumber, newBalance };
+        });
+
+        res.json(result);
+    } catch (err) {
+        console.error(err);
+        res.status(err.message === 'Account not found' ? 404 : 500).json({ error: err.message });
+    }
+});
+
+app.post('/account/:accNumber/withdraw', async (req, res) => {
+    const accNumber = parseInt(req.params.accNumber, 10);
+    const amount    = Number(req.body.amount);
+
+    if (isNaN(amount) || amount <= 0) {
+        return res.status(400).json({ error: 'Positive numeric amount required' });
+    }
+
+    try {
+        const result = await prisma.$transaction(async (tx) => {
+        const account = await tx.account.findUnique({ where: { accNumber } });
+        if (!account) throw new Error('Account not found');
+
+        const curBalance = Number(account.balance ?? 0);
+        if (curBalance < amount) throw new Error('Insufficient funds');
+
+        const newBalance = (curBalance - amount).toString();
+
+        await tx.account.update({
+            where: { accNumber },
+            data:  { balance: newBalance },
+        });
+
+        await tx.transactions.create({
+            data: {
+                accNumber,
+                transNumber: await nextTransNumber(accNumber),
+                amount: (-amount).toString(),
+            },
+        });
+
+        return { accNumber, newBalance };
+        });
+
+        res.json(result);
+    } catch (err) {
+        console.error(err);
+        const code = err.message === 'Account not found' ? 404
+                    : err.message === 'Insufficient funds' ? 400
+                    : 500;
+        res.status(code).json({ error: err.message });
+    }
+});
+  
+
 app.listen(PORT);
