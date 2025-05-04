@@ -1,4 +1,4 @@
-const PrismaClient = require('@prisma/client');
+const { PrismaClient } = require('./generated/prisma/client');
 const express = require('express');
 
 let prisma = new PrismaClient();
@@ -8,7 +8,7 @@ app.use(express.json());
 const PORT = 3000;
 
 app.get('/problems/1', async (req, res) => {
-    return prisma.customer.findMany({
+    res.send(prisma.customer.findMany({
         where: { income: { gte: 50_000, lte: 60_000 } },
         orderBy: [
             { income: 'desc' },
@@ -17,35 +17,42 @@ app.get('/problems/1', async (req, res) => {
         ],
         select: { firstName: true, lastName: true, income: true },
         take: 10,
-    });
+    }));
 });
 
 app.get('/problems/2', async (req, res) => {
     const employees = await prisma.employee.findMany({
         where: {
-            branch: { branchName: { in: ['London', 'Berlin'] } },
+            Branch_Employee_branchNumberToBranch: {
+                branchName: { in: ['London', 'Berlin'] }
+            },
         },
         include: {
-            branch: {
+            Branch_Employee_branchNumberToBranch: {
                 select: {
                     branchName: true,
-                    manager: { select: { salary: true } },
+                    // manager: { select: { salary: true } },
+                    Employee_Branch_managerSINToEmployee: {
+                        select: {
+                            salary: true,
+                        },
+                    },
                 },
             },
         },
     });
 
-    return employees
+    res.send(employees
         .map((e) => ({
             sin: e.sin,
-            branchName: e.branch.branchName,
+            branchName: e.Branch_Employee_branchNumberToBranch.branchName,
             salary: e.salary,
-            diff: e.branch.manager.salary - e.salary,
+            diff: e.Branch_Employee_branchNumberToBranch.Employee_Branch_managerSINToEmployee.salary - e.salary,
         }))
         .sort((a, b) =>
             b.diff - a.diff || a.branchName.localeCompare(b.branchName),
         )
-        .slice(0, 10);
+        .slice(0, 10));
 });
 
 app.get('/problems/3', async (req, res) => {
@@ -58,19 +65,19 @@ app.get('/problems/3', async (req, res) => {
         0,
     ) * 2;
 
-    return prisma.customer.findMany({
+    res.send(prisma.customer.findMany({
         where: { income: { gte: threshold } },
         select: { firstName: true, lastName: true, income: true },
         orderBy: [{ lastName: 'asc' }, { firstName: 'asc' }],
         take: 10,
-    });
+    }));
 });
 
 app.get('/problems/4', async (req, res) => {
     const customers = await prisma.customer.findMany({
         where: { income: { gt: 80_000 } },
         include: {
-            owns: { include: { account: { include: { branch: true } } } },
+            Owns: { include: { Account: { include: { Branch: true } } } },
         },
     });
 
@@ -78,30 +85,30 @@ app.get('/problems/4', async (req, res) => {
 
     customers.forEach((c) => {
         const branches = new Set(
-            c.owns.map((o) => o.account.branch.branchName),
+            c.Owns.map((o) => o.Account.Branch.branchName),
         );
         if (branches.has('London') && branches.has('Latveria')) {
-            c.owns.forEach((o) =>
+            c.Owns.forEach((o) =>
                 qualified.push({
                     customerID: c.customerID,
                     income: c.income,
                     accNumber: o.accNumber,
-                    branchNumber: o.account.branchNumber,
+                    branchNumber: o.Account.branchNumber,
                 }),
             );
         }
     });
 
-    return qualified
+    res.send(qualified
         .sort(
             (a, b) =>
                 a.customerID - b.customerID || a.accNumber - b.accNumber,
         )
-        .slice(0, 10);
+        .slice(0, 10));
 });
 
 app.get('/problems/5', async (req, res) => {
-    return prisma.account.findMany({
+    res.send(prisma.account.findMany({
         where: {
             type: { in: ['BUS', 'SAV'] },
             owns: { some: {} },
@@ -113,7 +120,7 @@ app.get('/problems/5', async (req, res) => {
             owns: { select: { customerID: true } },
         },
         orderBy: [
-            { owns: { _count: 'asc' } }, // will be re-sorted below
+            { owns: { _count: 'asc' } },
             { type: 'asc' },
             { accNumber: 'asc' },
         ],
@@ -134,13 +141,13 @@ app.get('/problems/5', async (req, res) => {
                     x.accNumber - y.accNumber,
             )
             .slice(0, 10),
-    );
+    ));
 });
 
 app.get('/problems/6', async (req, res) => {
     const branch = await prisma.branch.findFirstOrThrow({
         where: {
-            manager: {
+            Employee_Branch_managerSINToEmployee: {
                 firstName: 'Phillip',
                 lastName: 'Edwards',
             },
@@ -148,7 +155,7 @@ app.get('/problems/6', async (req, res) => {
         select: { branchNumber: true, branchName: true },
     });
 
-    return prisma.account.findMany({
+    res.send(prisma.account.findMany({
         where: {
             branchNumber: branch.branchNumber,
             balance: { gt: 100_000 },
@@ -160,35 +167,31 @@ app.get('/problems/6', async (req, res) => {
         },
         orderBy: { accNumber: 'asc' },
         take: 10,
-    });
+    }));
 });
 
-/* --------------------------------------------------------------- */
-/*  Problem 7 — New York only, no London owners or co-owners       */
-/* --------------------------------------------------------------- */
 app.get('/problems/7', async (req, res) => {
-    return prisma.customer.findMany({
+    res.send(prisma.customer.findMany({
         where: {
-            owns: {
+            Owns: {
                 some: {
-                    account: { branch: { branchName: 'New York' } },
+                    Account: { Branch: { branchName: 'New York' } },
                 },
                 none: {
-                    account: { branch: { branchName: 'London' } },
+                    Account: { Branch: { branchName: 'London' } },
                 },
             },
-            // no co-owner of any shared account may own London:
             NOT: {
-                owns: {
+                Owns: {
                     some: {
-                        account: {
-                            owns: {
+                        Account: {
+                            Owns: {
                                 some: {
-                                    customer: {
-                                        owns: {
+                                    Customer: {
+                                        Owns: {
                                             some: {
-                                                account: {
-                                                    branch: { branchName: 'London' },
+                                                Account: {
+                                                    Branch: { branchName: 'London' },
                                                 },
                                             },
                                         },
@@ -203,11 +206,11 @@ app.get('/problems/7', async (req, res) => {
         select: { customerID: true },
         orderBy: { customerID: 'asc' },
         take: 10,
-    });
+    }));
 });
 
 app.get('/problems/8', async (req, res) => {
-    return prisma.employee.findMany({
+    res.send(prisma.employee.findMany({
         where: { salary: { gt: 50_000 } },
         include: {
             branchManaged: { select: { branchName: true } },
@@ -217,7 +220,7 @@ app.get('/problems/8', async (req, res) => {
             { firstName: 'asc' },
         ],
         take: 10,
-    });
+    }));
 });
 
 app.get('/problems/9', async (req, res) => {
@@ -229,7 +232,7 @@ app.get('/problems/9', async (req, res) => {
         take: 10_000, // big but safe for demo ??????????????????????????????????????????/
     });
 
-    return emp
+    res.send(emp
         .map((e) => ({
             ...e,
             branchName:
@@ -240,17 +243,17 @@ app.get('/problems/9', async (req, res) => {
                 (b.branchName ?? '').localeCompare(a.branchName ?? '') ||
                 a.firstName.localeCompare(b.firstName),
         )
-        .slice(0, 10);
+        .slice(0, 10));
 });
 
 app.get('/problems/10', async (req, res) => {
     const helenBranches = await prisma.branch.findMany({
         where: {
-            accounts: {
+            Account: {
                 some: {
-                    owns: {
+                    Owns: {
                         some: {
-                            customer: {
+                            Customer: {
                                 firstName: 'Helen',
                                 lastName: 'Morgan',
                             },
@@ -269,16 +272,16 @@ app.get('/problems/10', async (req, res) => {
                 { income: { gt: 5_000 } },
                 { firstName: 'Helen', lastName: 'Morgan' },
             ],
-            owns: { some: {} },
+            Owns: { some: {} },
         },
         include: {
-            owns: { include: { account: { select: { branchNumber: true } } } },
+            Owns: { include: { Account: { select: { branchNumber: true } } } },
         },
     });
 
-    return candidates
+    res.send(candidates
         .filter((c) => {
-            const myBranches = new Set(c.owns.map((o) => o.account.branchNumber));
+            const myBranches = new Set(c.Owns.map((o) => o.Account.branchNumber));
             for (const b of branchSet) if (!myBranches.has(b)) return false;
             return true;
         })
@@ -289,48 +292,48 @@ app.get('/problems/10', async (req, res) => {
             firstName,
             lastName,
             income,
-        }));
+        })));
 });
 
 app.get('/problems/11', async (req, res) => {
     const minRow = await prisma.employee.aggregate({
         _min: { salary: true },
-        where: { branch: { branchName: 'Berlin' } },
+        where: { Branch_Employee_branchNumberToBranch: { branchName: 'Berlin' } },
     });
     const minSalary = minRow._min.salary ?? 0;
 
-    return prisma.employee.findMany({
+    res.send(prisma.employee.findMany({
         where: {
             salary: minSalary,
-            branch: { branchName: 'Berlin' },
+            Branch_Employee_branchNumberToBranch: { branchName: 'Berlin' },
         },
         select: { sin: true, firstName: true, lastName: true, salary: true },
         orderBy: { sin: 'asc' },
         take: 10,
-    });
+    }));
 });
 
 app.get('/problems/14', async (req, res) => {
-    const res = await prisma.employee.aggregate({
+    const result = await prisma.employee.aggregate({
         _sum: { salary: true },
-        where: { branch: { branchName: 'Moscow' } },
+        where: { Branch_Employee_branchNumberToBranch: { branchName: 'Moscow' } },
     });
-    return { totalSalary: res._sum.salary ?? 0 };
+    res.send({ totalSalary: result._sum.salary ?? 0 });
 });
 
 app.get('/problems/15', async (req, res) => {
     const customers = await prisma.customer.findMany({
         include: {
-            owns: {
-                include: { account: { select: { branchNumber: true } } },
+            Owns: {
+                include: { Account: { select: { branchNumber: true } } },
             },
         },
     });
 
-    return customers
+    res.send(customers
         .filter(
             (c) =>
-                new Set(c.owns.map((o) => o.account.branchNumber)).size === 4,
+                new Set(c.Owns.map((o) => o.Account.branchNumber)).size === 4,
         )
         .map(({ customerID, firstName, lastName }) => ({
             customerID,
@@ -342,11 +345,11 @@ app.get('/problems/15', async (req, res) => {
                 a.lastName.localeCompare(b.lastName) ||
                 a.firstName.localeCompare(b.firstName),
         )
-        .slice(0, 10);
+        .slice(0, 10));
 });
 
 app.get('/problems/17', async (req, res) => {
-    return prisma.customer.groupBy({
+    res.send(prisma.customer.groupBy({
         by: ['customerID', 'firstName', 'lastName', 'income'],
         where: { lastName: { startsWith: 'S', contains: 'e' } },
         _count: { _all: true },
@@ -362,11 +365,11 @@ app.get('/problems/17', async (req, res) => {
             income: r.income,
             avgBalance: r._avg.owns?.account?.balance ?? 0,
         })),
-    );
+    ));
 });
 
 app.get('/problems/18', async (req, res) => {
-    return prisma.account.groupBy({
+    res.send(prisma.account.groupBy({
         by: ['accNumber', 'balance'],
         where: { branch: { branchName: 'Berlin' } },
         _count: { transactions: true },
@@ -380,78 +383,7 @@ app.get('/problems/18', async (req, res) => {
             balance: r.balance,
             txnSum: r._sum.transactions?.amount ?? 0,
         })),
-    );
-});
-
-app.get('/problems/19', async (req, res) => {
-    const bigBranches = await prisma.branch.groupBy({
-        by: ['branchNumber', 'branchName'],
-        _count: { accounts: true },
-        having: { _count: { accounts: { gte: 50 } } },
-    });
-
-    return prisma.account.groupBy({
-        by: ['type', 'branchNumber'],
-        where: {
-            branchNumber: { in: bigBranches.map((b) => b.branchNumber) },
-        },
-        _avg: { transactions: { amount: true } },
-    }).then((rows) =>
-        rows
-            .map((r) => ({
-                branchName:
-                    bigBranches.find((b) => b.branchNumber === r.branchNumber)
-                        .branchName,
-                accountType: r.type,
-                avgTxn: r._avg.transactions?.amount ?? 0,
-            }))
-            .sort(
-                (a, b) =>
-                    a.branchName.localeCompare(b.branchName) ||
-                    a.accountType.localeCompare(b.accountType),
-            )
-            .slice(0, 10),
-    );
-});
-
-app.get('/problems/20', async (req, res) => {
-    const typeAverages = await prisma.account.groupBy({
-        by: ['type'],
-        _avg: { transactions: { amount: true } },
-    });
-    let overall = {};
-    typeAverages.forEach(
-        (t) => (overall[t.type] = t._avg.transactions?.amount ?? 0),
-    );
-
-    const acctAvg = await prisma.account.groupBy({
-        by: ['accNumber', 'type'],
-        _avg: { transactions: { amount: true } },
-    });
-
-    const qualifyingNumbers = acctAvg
-        .filter((a) => a._avg.transactions.amount > 3 * overall[a.type])
-        .map((a) => a.accNumber);
-
-    return prisma.transactions.findMany({
-        where: { accNumber: { in: qualifyingNumbers } },
-        include: {
-            account: { select: { type: true } },
-        },
-        orderBy: [
-            { account: { type: 'asc' } },
-            { accNumber: 'asc' },
-            { transNumber: 'asc' },
-        ],
-        take: 10,
-    }).then((txns) =>
-        txns.map((t) => ({
-            accountType: t.account.type,
-            accNumber: t.accNumber,
-            transNumber: t.transNumber,
-            amount: t.amount,
-        })),
-    );
+    ));
 });
 
 app.post('/employee/join', async (req, res) => {
